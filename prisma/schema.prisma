@@ -1,0 +1,110 @@
+// QueueDesk data model.
+// SQLite stores enums as TEXT; Prisma enforces the allowed values at the client level.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum CommentAuthorType {
+  CUSTOMER
+  AGENT
+}
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  company   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets Ticket[]
+}
+
+model Agent {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedTickets Ticket[]              @relation("TicketAssignee")
+  comments        TicketComment[]
+  statusChanges   TicketStatusHistory[]
+}
+
+model Ticket {
+  id          Int            @id @default(autoincrement())
+  subject     String
+  description String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  customerId  Int
+  assigneeId  Int?
+  resolvedAt  DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  customer      Customer              @relation(fields: [customerId], references: [id])
+  assignee      Agent?                @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  comments      TicketComment[]
+  statusHistory TicketStatusHistory[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([customerId])
+  @@index([assigneeId])
+  @@index([createdAt])
+}
+
+model TicketComment {
+  id         Int               @id @default(autoincrement())
+  ticketId   Int
+  authorType CommentAuthorType
+  agentId    Int?
+  body       String
+  createdAt  DateTime          @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  agent  Agent? @relation(fields: [agentId], references: [id])
+
+  @@index([ticketId, createdAt])
+}
+
+// Append-only log of status changes. The first row of every ticket has fromStatus = NULL.
+model TicketStatusHistory {
+  id               Int           @id @default(autoincrement())
+  ticketId         Int
+  fromStatus       TicketStatus?
+  toStatus         TicketStatus
+  changedByAgentId Int?
+  note             String?
+  createdAt        DateTime      @default(now())
+
+  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  changedBy Agent? @relation(fields: [changedByAgentId], references: [id])
+
+  @@index([ticketId, createdAt])
+}
